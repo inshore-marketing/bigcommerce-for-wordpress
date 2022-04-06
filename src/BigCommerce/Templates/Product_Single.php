@@ -136,7 +136,7 @@ class Product_Single extends Controller {
 		}
 
 		$related_ids = $product->related_products( [
-			'posts_per_page' => $max_posts,
+			'posts_per_page' => 50, //$max_posts,
 		] );
 
 		if ( empty( $related_ids ) ) {

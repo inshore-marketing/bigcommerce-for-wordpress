@@ -101,17 +101,10 @@ class Product_Card extends Controller {
 		if ( ! $product->is_purchasable() ) {
 			return '';
 		}
-		if ( $product->has_options() ) {
 			$component = View_Product_Button::factory( [
 				View_Product_Button::PRODUCT => $product,
-				View_Product_Button::LABEL   => get_option( Buttons::CHOOSE_OPTIONS, __( 'Choose Options', 'bigcommerce' ) ),
+				View_Product_Button::LABEL   => get_option( Buttons::CHOOSE_OPTIONS, __( 'Product Details', 'bigcommerce' ) ),
 			] );
-		} else {
-			$component = Product_Form::factory( [
-				Product_Form::PRODUCT      => $product,
-				Product_Form::SHOW_OPTIONS => false,
-			] );
-		}
 
 		return $component->render();
 	}

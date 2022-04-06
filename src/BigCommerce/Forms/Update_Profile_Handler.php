@@ -75,13 +75,16 @@ class Update_Profile_Handler implements Form_Handler {
 			return;
 		}
 
-		/**
-		 * Filters profile form success message.
-		 *
-		 * @param string $message Profile form success message.
-		 */
+		if ( ! empty( $profile[ 'first_name' ] ) && $profile[ 'first_name' ] != $user->first_name ) {
+			update_user_meta( $user->ID, 'first_name', $profile['first_name'] );
+		}
+		if ( ! empty( $profile[ 'last_name' ] ) && $profile[ 'last_name' ] != $user->last_name ) {
+			update_user_meta( $user->ID, 'last_name', $profile['last_name'] );
+		}
+		
 		$message = apply_filters( 'bigcommerce/form/profile/success_message', __( 'Profile updated.', 'bigcommerce' ) );
 		do_action( 'bigcommerce/form/success', $message, $submission, null, [ 'key' => 'profile_updated' ] );
+
 	}
 
 	private function should_handle_request( $submission ) {
@@ -139,12 +142,6 @@ class Update_Profile_Handler implements Form_Handler {
 			}
 		}
 
-		/**
-		 * Filters update profile form errors.
-		 *
-		 * @param \WP_Error $errors     WP error.
-		 * @param array     $submission Submitted data.
-		 */
 		$errors = apply_filters( 'bigcommerce/form/update_profile/errors', $errors, $submission );
 
 		return $errors;

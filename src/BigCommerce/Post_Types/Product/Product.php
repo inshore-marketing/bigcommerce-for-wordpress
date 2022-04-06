@@ -460,12 +460,6 @@ class Product {
 		$cart     = get_option( Cart::OPTION_ENABLE_CART, true );
 		$class    = 'bc-btn bc-btn--form-submit';
 
-		/**
-		 * Filters purchase button attributes.
-		 *
-		 * @param array   $attributes Attributes.
-		 * @param Product $product    Product.
-		 */
 		$attributes = apply_filters( 'bigcommerce/button/purchase/attributes', [], $this );
 		$attributes = implode( ' ', array_map( function ( $attribute, $value ) {
 			$attribute  = sanitize_title_with_dashes( $attribute );
@@ -486,13 +480,6 @@ class Product {
 		}
 		$button = sprintf( '<button class="%s" type="submit" data-js="%d" %s %s>%s</button>', $class, $this->bc_id(), $options, $attributes, $label );
 
-		/**
-		 * Filters purchase button.
-		 *
-		 * @param string $button  Button html.
-		 * @param int    $post_id Post id.
-		 * @param string $label   Label.
-		 */
 		return apply_filters( 'bigcommerce/button/purchase', $button, $this->post_id, $label );
 	}
 
@@ -635,6 +622,7 @@ class Product {
 			/**
 			 * This filter is documented in src/BigCommerce/Post_Types/Product/Product.php
 			 */
+			
 			return apply_filters( 'bigcommerce/product/related_products', $this->related_products_by_category( $args ), $this->post_id );
 		}
 
@@ -663,16 +651,69 @@ class Product {
 		if ( empty( $categories ) ) {
 			return []; // nothing to work with
 		}
+		foreach ($categories as $category){
+			$ids[] = $category->term_id;//read the category ids into an array
+			if ($category->parent) {
+				$parents[] = $category->parent;//read the parent ids into an array
+			}
+		}
 
-		$term_ids            = array_map( 'intval', wp_list_pluck( $categories, 'term_id' ) );
+		$parent = array_intersect($ids, $parents);
+
+		$cat = get_the_category($this->post_id);
+
+		$parent_ID = $categories[0]->parent;
+		$term_children = get_term_children(array_shift($parent), 'bigcommerce_category');
+		$term_ids = array_map( 'intval', wp_list_pluck( $categories, 'term_id' ) );
+
+		foreach ($term_children as $term_child){
+			$info = get_term_by('term_taxonomy_id',$term_child);
+			$name = $info->name;
+			switch (strtolower($name)) {
+				case 'mainsails':
+					$mainsails_id = $info->term_id;
+					break;
+				case 'headsails':
+					$headsails_id = $info->term_id;
+					break;
+				case 'asymmetrics':
+					$spinnakers_id = $info->term_id;
+					break;
+				case 'symmetrics':
+					$spinnakers_id = $info->term_id;
+					break;
+			}
+		}
+		
 		$args['tax_query'][] = [
 			'taxonomy' => Product_Category::NAME,
 			'field'    => 'term_id',
-			'terms'    => $term_ids,
+			'terms'    => $mainsails_id,
 			'operator' => 'IN',
 		];
 
-		return get_posts( $args );
+		$mainsails = get_posts($args);
+
+		$args['tax_query'][0] = [
+			'taxonomy' => Product_Category::NAME,
+			'field'    => 'term_id',
+			'terms'    => $headsails_id,
+			'operator' => 'IN',
+		];
+		$headsails = get_posts($args);
+
+		$args['tax_query'][0] = [
+			'taxonomy' => Product_Category::NAME,
+			'field'    => 'term_id',
+			'terms'    => $spinnakers_id,
+			'operator' => 'IN',
+		];
+		$spinnakers = get_posts($args);
+
+		$sorted_products_by_cat = array_merge($mainsails, $headsails, $spinnakers);
+
+		//$related_prods = get_posts( $args ); 
+		return $sorted_products_by_cat;
 	}
 
 	/**
@@ -762,48 +803,11 @@ class Product {
 			throw new \InvalidArgumentException( __( 'Product ID must be a positive integer', 'bigcommerce' ) );
 		}
 
-		return self::by_product_meta( 'bigcommerce_id', absint( $product_id ), $channel, $query_args );
-	}
-
-	/**
-	 * Gets a BigCommerce Product SKU and returns matching Product object
-	 *
-	 * @param string        $product_sku
-	 *
-	 * @param \WP_Term|null $channel
-	 *
-	 * @param array         $query_args
-	 *
-	 * @return Product|array
-	 */
-	public static function by_product_sku( $product_sku, \WP_Term $channel = null, $query_args = [] ) {
-
-		if ( empty( $product_sku ) ) {
-			throw new \InvalidArgumentException( __( 'Product SKU is missing', 'bigcommerce' ) );
-		}
-
-		return self::by_product_meta( 'bigcommerce_sku', sanitize_text_field( $product_sku ), $channel, $query_args );
-	}
-
-	/**
-	 * Gets a BigCommerce Product by meta
-	 *
-	 * @param string        $meta_key
-	 * @param mixed         $meta_value
-	 *
-	 * @param \WP_Term|null $channel
-	 *
-	 * @param array         $query_args
-	 *
-	 * @return Product|array
-	 */
-	private static function by_product_meta( $meta_key, $meta_value, \WP_Term $channel = null, $query_args = [] ) {
-
 		$args = [
 			'meta_query'     => [
 				[
-					'key'   => $meta_key,
-					'value' => $meta_value,
+					'key'   => 'bigcommerce_id',
+					'value' => absint( $product_id ),
 				],
 			],
 			'post_type'      => self::NAME,
@@ -832,9 +836,12 @@ class Product {
 		$posts = get_posts( $args );
 
 		if ( empty( $posts ) ) {
-			throw new Product_Not_Found_Exception( sprintf( __( 'No product found matching %s %s', 'bigcommerce' ), strtoupper( $meta_key ), $meta_value ) );
+			throw new Product_Not_Found_Exception( sprintf( __( 'No product found matching BigCommerce ID %d', 'bigcommerce' ), $product_id ) );
 		}
 
 		return new Product( $posts[0]->ID );
 	}
 }
+
+
+
