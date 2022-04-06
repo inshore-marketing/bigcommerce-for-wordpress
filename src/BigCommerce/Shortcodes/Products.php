@@ -47,7 +47,6 @@ class Products implements Shortcode {
 
 	public function render( $attr, $instance ) {
 		$attr = shortcode_atts( self::default_attributes(), $attr, self::NAME );
-
 		$mapper     = new Query_Mapper();
 		$query_args = $mapper->map_shortcode_args_to_query( $attr );
 
@@ -55,9 +54,61 @@ class Products implements Shortcode {
 		if ( $current_post ) {
 			$query_args[ 'post__not_in' ] = [ $current_post ];
 		}
+		
+		$term = get_term_by('slug',$attr['category'],'bigcommerce_category');
 
+		$term_children = get_term_children($term->term_id, 'bigcommerce_category');
+
+		foreach ($term_children as $term_child){
+			$info = get_term_by('term_taxonomy_id',$term_child);
+			$name = $info->name;
+			switch (strtolower($name)) {
+				case 'mainsails':
+					$mainsails_id = $info->term_id;
+					break;
+				case 'headsails':
+					$headsails_id = $info->term_id;
+					break;
+				case 'asymmetrics':
+					$spinnakers_id = $info->term_id;
+					break;
+				case 'symmetrics':
+					$spinnakers_id = $info->term_id;
+					break;
+			}
+		}
+
+		$query_args['tax_query'][0] = [
+			'taxonomy' => 'bigcommerce_category',
+			'field'    => 'term_id',
+			'terms'    => $mainsails_id,
+			'operator' => 'IN',
+		];
 		$query   = new \WP_Query( $query_args );
-		$results = $query->posts;
+
+		$mainsails = $query->posts;
+
+		$query_args['tax_query'][0] = [
+			'taxonomy' => 'bigcommerce_category',
+			'field'    => 'term_id',
+			'terms'    => $headsails_id,
+			'operator' => 'IN',
+		];
+		$query   = new \WP_Query( $query_args );
+
+		$headsails = $query->posts;
+
+		$query_args['tax_query'][0] = [
+			'taxonomy' => 'bigcommerce_category',
+			'field'    => 'term_id',
+			'terms'    => $spinnakers_id,
+			'operator' => 'IN',
+		];
+		$query   = new \WP_Query( $query_args );
+
+		$spinnakers = $query->posts;
+
+		$results = array_merge($mainsails, $headsails, $spinnakers);
 
 		$products = array_map( function ( $post_id ) {
 			return new Product( $post_id );
@@ -68,7 +119,7 @@ class Products implements Shortcode {
 			return ''; // TODO: something nicer?
 		}
 
-		if ( count( $products ) > 1 || $attr[ 'paged' ] > 1 ) {
+		if ( count( $products ) > 0 || $attr[ 'paged' ] > 1 ) {
 			$cards = array_map( function ( Product $product ) use ( $attr ) {
 				if ( empty( $attr[ 'preview' ] ) ) {
 					$card = Product_Card::factory( [
@@ -121,3 +172,6 @@ class Products implements Shortcode {
 		return add_query_arg( array_filter( $attr ), $base_url );
 	}
 }
+
+
+

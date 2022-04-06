@@ -90,9 +90,9 @@ class Related_Product extends Controller {
 				View_Product_Button::LABEL   => get_option( Buttons::CHOOSE_OPTIONS, __( 'Choose Options', 'bigcommerce' ) ),
 			] );
 		} else {
-			$component = Product_Form::factory( [
-				Product_Form::PRODUCT      => $product,
-				Product_Form::SHOW_OPTIONS => false,
+			$component = View_Product_Button::factory( [
+				View_Product_Button::PRODUCT => $product,
+				View_Product_Button::LABEL   => "Product Details",
 			] );
 		}
 

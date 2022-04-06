@@ -52,12 +52,23 @@ class Registration_Handler implements Form_Handler {
 		}
 
 		$profile = $this->get_profile( $submission[ 'bc-register' ] );
-
 		$address = $this->get_address( $submission[ 'bc-register' ] );
 
 		// create the user
 		// be sure to trim the email down to 60 characters to meet WP table limits for username
-		$user_id = wp_create_user( mb_substr( $profile[ 'email' ], 0, 60 ), $password, $profile[ 'email' ] );
+		$userdata = array(
+			'user_pass'             => $password,   //(string) The plain-text user password.
+			'user_login'            => mb_substr( $profile[ 'email' ], 0, 60 ),   //(string) The user's login username.
+			'user_email'            => $profile[ 'email' ],   //(string) The user email address.
+			'first_name'            => $profile['first_name'],   //(string) The user's first name. For new users, will be used to build the first part of the user's display name if $display_name is not specified.
+			'last_name'             => $profile['last_name'],   //(string) The user's last name. For new users, will be used to build the second part of the user's display name if $display_name is not specified.
+			'show_admin_bar_front'  => 'false',   //(string|bool) Whether to display the Admin Bar for the user on the site's front end. Default true.
+			'role'                  => 'customer',   //(string) User's role.
+		 
+		);
+		$user_id = wp_insert_user( $userdata ) ;
+
+		//$user_id = wp_create_user( mb_substr( $profile[ 'email' ], 0, 60 ), $password, $profile[ 'email' ] );
 
 		if ( is_wp_error( $user_id ) ) {
 			switch ( $user_id->get_error_code() ) {
@@ -114,6 +125,11 @@ class Registration_Handler implements Form_Handler {
 		update_user_meta( $user_id, User_Profile_Settings::SYNC_PASSWORD, true );
 
 		wp_set_current_user( $user_id );
+
+		//set user first and last name in wordpress
+		// update_user_meta( $user_id, 'first_name', $profile['first_name'] );
+		// update_user_meta( $user_id, 'last_name', $profile['last_name'] );
+
 
 		$customer = new Customer( $user_id );
 		$customer->add_address( $address );
@@ -212,12 +228,6 @@ class Registration_Handler implements Form_Handler {
 			$errors->add( 'is_spam', __( 'This user registration was flagged as spam. Please try registering again with different information.', 'bigcommerce' ) );
 		}
 
-		/**
-		 * Filters update registration form errors.
-		 *
-		 * @param \WP_Error $errors     WP error.
-		 * @param array     $submission Submitted data.
-		 */
 		$errors = apply_filters( 'bigcommerce/form/registration/errors', $errors, $submission );
 
 		return $errors;
@@ -240,11 +250,11 @@ class Registration_Handler implements Form_Handler {
 		if ( strlen( $password ) < 8 ) {
 			return false;
 		}
-
+		
 		if ( ! preg_match( '/\d/', $password ) ) {
 			return false;
 		}
-
+		
 		$has_punct = false;
 		$has_lower = false;
 		$has_upper = false;
