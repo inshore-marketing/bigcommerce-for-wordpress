@@ -4,14 +4,32 @@
 namespace BigCommerce\Post_Types\Product;
 
 
+use BigCommerce\Api\v3\Api\CatalogApi;
+use BigCommerce\Api\v3\ApiException;
 use BigCommerce\Customizer\Sections\Product_Archive;
+use BigCommerce\Import\Import_Type;
+use BigCommerce\Customizer\Sections\Product_Category as Customizer;
+use BigCommerce\Import\Processors\Store_Settings;
 use BigCommerce\Settings\Sections\Currency;
 use BigCommerce\Taxonomies\Brand\Brand;
 use BigCommerce\Taxonomies\Flag\Flag;
 use BigCommerce\Taxonomies\Product_Category\Product_Category;
+use BigCommerce\Taxonomies\Product_Category\Query_Filter;
 
 class Query {
 	const UNFILTERED_QUERY_FLAG = '_bigcommerce_unfiltered';
+
+	private $query_filter;
+
+	/**
+	 * @var \BigCommerce\Api\v3\Api\CatalogApi
+	 */
+	private $catalog_api;
+
+	public function __construct( CatalogApi $catalog_api, Query_Filter $filter) {
+		$this->query_filter = $filter;
+		$this->catalog_api  = $catalog_api;
+	}
 
 	/**
 	 * @param \WP_Query $query
@@ -170,6 +188,29 @@ class Query {
 		$sku_in      = $this->get_query_var_as_array( $query, 'bigcommerce_sku__in' );
 		$sku_not_in  = $this->get_query_var_as_array( $query, 'bigcommerce_sku__not_in' );
 
+		$product_behaviour = get_option( Store_Settings::PRODUCT_OUT_OF_STOCK, 'do_nothing' );
+
+		if ( ! is_admin() && ! is_single() &&  $query->get( 'bc-sort' ) && $this->is_product_query( $query ) && ( $product_behaviour === 'hide_product_and_accessible' || $product_behaviour === 'hide_product' ) ) {
+			$meta_query = $query->get( 'meta_query' ) ?: [];
+			$tax_query  = $query->get( 'tax_query' ) ?: [];
+
+			$meta_query['bigcommerce_inventory_level_settings'] = [
+				'key'     => Product::INVENTORY_META_KEY,
+				'value'   => 0,
+				'compare' => '>',
+			];
+
+			$tax_query['bigcommerce_out_stock_flag'] = [
+				'taxonomy' => Flag::NAME,
+				'field'    => 'name',
+				'terms'    => Flag::OUT_OF_STOCK,
+				'operator' => 'NOT IN',
+			];
+
+			$query->set( 'meta_query', $meta_query );
+			$query->set( 'tax_query', $tax_query );
+		}
+
 		$in = [];
 		if ( ! empty( $bcid_in ) ) {
 			$post_ids = $this->bcids_to_post_ids( $bcid_in ) ?: [ 0 ];
@@ -181,7 +222,8 @@ class Query {
 			$in       = $in ?: [ 0 ];
 		}
 		if ( $this->is_product_search( $query ) ) {
-			$search_in = $this->search_to_post_ids( $query->get( 's' ) );
+			$is_headless = ! Import_Type::is_traditional_import();
+			$search_in   = $this->search_to_post_ids( $query->get( 's' ), $is_headless );
 			$query->set( 's', '' ); // set 's' back to the default value so WP doesn't turn it into another search
 			$in = $in ? array_intersect( $in, $search_in ) : $search_in;
 			$in = $in ?: [ 0 ];
@@ -210,6 +252,26 @@ class Query {
 			$post__not_in = array_merge( $post__not_in, $out );
 			$query->set( 'post__not_in', $post__not_in );
 		}
+	}
+
+	private function handle_non_visible_categories(): string {
+		$result = $this->query_filter->get_non_visible_terms();
+
+		if ( empty( $result) || is_wp_error( $result) ) {
+			return '';
+		}
+
+		$categories_exclude = '';
+
+		foreach ( $result as $item ) {
+			$categories_exclude = sprintf( '-%d,', $item );
+		}
+
+		if ( empty( $categories_exclude ) ) {
+			return '';
+		}
+
+		return trim( $categories_exclude, ',' );
 	}
 
 	/**
@@ -374,41 +436,55 @@ class Query {
 	 *
 	 * @return array
 	 */
-	private function search_to_post_ids( $search_phrase ) {
+	private function search_to_post_ids( $search_phrase, $is_headless = false ) {
 		$query = new \WP_Query();
 
-		$search_query_args = [
-			'fields'                => 'ids',
-			'posts_per_page'        => - 1,
-			'post_type'             => Product::NAME,
-			'_bigcommerce_internal' => true,
-			'meta_query'            => [
-				'relation'        => 'OR',
-				'bigcommerce_id'  => [
-					'key'     => Product::BIGCOMMERCE_ID,
-					'value'   => $search_phrase,
-					'compare' => '=',
-				],
-				'bigcommerce_sku' => [
-					'key'     => Product::SKU,
-					'value'   => $search_phrase,
-					'compare' => '=',
-				],
-			],
-		];
-
-		$matches = $query->query( $search_query_args );
+		if ( $is_headless ) {
+			$matches = $this->perform_headless_search( $search_phrase );
+		}
 
 		if ( empty( $matches ) ) {
 			$search_query_args = [
-				's'                         => $search_phrase,
-				'fields'                    => 'ids',
-				'post_type'                 => Product::NAME,
-				'posts_per_page'            => - 1,
-				self::UNFILTERED_QUERY_FLAG => true,
+				'fields'                => 'ids',
+				'posts_per_page'        => - 1,
+				'post_type'             => Product::NAME,
+				'_bigcommerce_internal' => true,
+				'meta_query'            => [
+					'relation'        => 'OR',
+					'bigcommerce_id'  => [
+						'key'     => Product::BIGCOMMERCE_ID,
+						'value'   => $search_phrase,
+						'compare' => '=',
+					],
+					'bigcommerce_sku' => [
+						'key'     => Product::SKU,
+						'value'   => $search_phrase,
+						'compare' => '=',
+					],
+				],
 			];
 
-			$matches = $query->query( $search_query_args );
+			if ( get_option( Customizer::CATEGORIES_IS_VISIBLE, 'no' ) === 'yes' ) {
+			$categories = $this->handle_non_visible_categories();
+
+			if ( ! empty( $categories ) ) {
+				$search_query_args['cat'] = $categories;
+			}
+		}
+
+		$matches = $query->query( $search_query_args );
+
+			if ( empty( $matches ) ) {
+				$search_query_args = [
+					's'                         => $search_phrase,
+					'fields'                    => 'ids',
+					'post_type'                 => Product::NAME,
+					'posts_per_page'            => - 1,
+					self::UNFILTERED_QUERY_FLAG => true,
+				];
+
+				$matches = $query->query( $search_query_args );
+			}
 		}
 
 		/**
@@ -418,5 +494,53 @@ class Query {
 		 * @param string $search_phrase Search phrase.
 		 */
 		return apply_filters( 'bigcommerce/query/search_post_ids', array_map( 'intval', $matches ), $search_phrase );
+	}
+
+	/**
+	 * Perform a search via Rest API. Retrieves an array of product ids from api
+	 * and tries to find existing product in WP DB
+	 *
+	 * @param string $search_phrase
+	 *
+	 * @return array
+	 */
+	private function perform_headless_search( $search_phrase = '' ): array {
+		$params = [
+			'is_visible'     => true,
+			'limit'          => 100,
+			'keyword'        => $search_phrase,
+			'include_fields' => ['id'],
+		];
+		try {
+			$products_response = $this->catalog_api->getProducts( $params );
+		} catch ( ApiException $exception ) {
+			return [];
+		}
+
+		$ids = array_map( static function ( $entry ) {
+			return $entry['id'];
+		}, $products_response->getData() );
+
+		if ( empty( $ids ) ) {
+			return [];
+		}
+
+		global $wpdb;
+
+		$prepared_ids   = implode( ', ', array_fill( 0, count( $ids ), '%d' ) );
+		$prepare_values = array_merge( [ Product::BIGCOMMERCE_ID ], $ids );
+		$sql            = "SELECT post_id FROM $wpdb->postmeta WHERE meta_key = %s AND meta_value IN ($prepared_ids)";
+		$result         = $wpdb->get_col(
+			$wpdb->prepare(
+				$sql,
+				$prepare_values
+			)
+		);
+
+		if ( empty( $result ) || is_a( $result, 'WP_Error' ) ) {
+			return [];
+		}
+
+		return $result;
 	}
 }

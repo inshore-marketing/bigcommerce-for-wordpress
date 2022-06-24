@@ -3,6 +3,7 @@
 
 namespace BigCommerce\Widgets;
 
+use BigCommerce\Customizer\Sections\Product_Category as Customizer;
 use BigCommerce\Post_Types\Product\Product;
 use BigCommerce\Taxonomies\Product_Category\Product_Category;
 
@@ -51,6 +52,13 @@ class Product_Category_Widget extends \WP_Widget {
 			'taxonomy'     => Product_Category::NAME,
 			'echo'         => false,
 		];
+
+		if ( get_option( Customizer::CATEGORIES_IS_VISIBLE, 'no' ) === 'yes' ) {
+			$cat_args['meta_query'][] = [
+				'key'   => 'is_visible',
+				'value' => true,
+			];
+		}
 
 		$markup = '';
 
