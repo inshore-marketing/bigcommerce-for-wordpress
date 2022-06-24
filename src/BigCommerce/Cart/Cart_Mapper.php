@@ -90,7 +90,7 @@ class Cart_Mapper {
 		 * then we need to deduct the calulated tax from the subtotal
 		 * as we are displaying the tax separately
 		 */
-		if ( $cart[ 'tax_included' ] ) {
+		if ( $cart[ 'tax_included' ] || $tax_amount < 0 ) {
 			$subtotal = $cart[ 'cart_amount' ][ 'raw' ];
 		} else {
 			$subtotal = $cart[ 'cart_amount' ][ 'raw' ] - $tax_amount;
@@ -219,6 +219,11 @@ class Cart_Mapper {
 	 */
 	private function get_variant( $variant_id, $product ) {
 		$data = $product->get_source_data();
+
+		if ( class_exists( 'BigCommerceReactTemplates\Plugin' ) ) {
+			return null;
+		}
+
 		foreach ( $data->variants as $variant ) {
 			if ( $variant->id == $variant_id ) {
 				return $variant;

@@ -9,6 +9,7 @@ use BigCommerce\Customizer\Sections\Product_Single as Customizer;
 use BigCommerce\Exceptions\Component_Not_Found_Exception;
 use BigCommerce\Import\Image_Importer;
 use BigCommerce\Post_Types\Product\Product;
+use BigCommerce\Taxonomies\Availability\Availability;
 
 class Product_Options extends Controller {
 	const PRODUCT  = 'product';
@@ -155,6 +156,7 @@ class Product_Options extends Controller {
 	 */
 	private function get_variants( Product $product ) {
 		$source = $product->get_source_data();
+
 		switch ( $source->inventory_tracking ) {
 			case 'none':
 				$inventory = - 1;
@@ -168,20 +170,40 @@ class Product_Options extends Controller {
 				break;
 		}
 
-		$image_size = $this->image_size();
-		$zoom_size  = $this->zoom_size();
-		$variants   = array_map( function ( $variant ) use ( $inventory, $image_size, $zoom_size, $product ) {
+		$image_size   = $this->image_size();
+		$zoom_size    = $this->zoom_size();
+		$availability = $product->availability();
+		$variants     = array_map( function ( $variant ) use ( $inventory, $image_size, $zoom_size, $product, $availability ) {
+			if ( get_option( Customizer::VARIANTS_DISABLED, 'yes' ) === 'yes' ) {
+				switch ( $availability ) {
+					case Availability::AVAILABLE:
+						// Inventory is empty or variant purchase is disabled
+						$variant_level_out   = empty( $inventory ) && $variant->inventory_level <= 0;
+						$purchasing_disabled = $variant_level_out || (bool) $variant->purchasing_disabled;
+						break;
+					case Availability::DISABLED:
+						$purchasing_disabled = true;
+						break;
+					case Availability::PREORDER:
+					default:
+						$purchasing_disabled = (bool) $variant->purchasing_disabled;
+						break;
+				}
+			} else {
+				$purchasing_disabled = (bool) $variant->purchasing_disabled;
+			}
+
 			$data = [
 				'variant_id'       => $variant->id,
 				'options'          => $variant->option_values,
 				'option_ids'       => wp_list_pluck( $variant->option_values, 'id' ),
 				'inventory'        => isset( $inventory ) ? $inventory : $variant->inventory_level,
-				'disabled'         => (bool) $variant->purchasing_disabled,
+				'disabled'         => $purchasing_disabled,
 				'disabled_message' => $variant->purchasing_disabled ? $variant->purchasing_disabled_message : '',
 				'sku'              => $variant->sku,
 				'price'            => $variant->calculated_price,
 				'formatted_price'  => $this->format_currency( $variant->calculated_price ),
-				'image'            => $this->variant_image_data( $variant->id, $product->post_id(), $image_size ),
+				'image'            => $product->is_headless() ? $this->headless_variant_image_data( $variant ) : $this->variant_image_data( $variant->id, $product->post_id(), $image_size ),
 				'zoom'             => [ 'url' => '', 'width' => 0, 'height' => 0 ],
 			];
 			if ( $this->enable_zoom() ) {
@@ -194,6 +216,17 @@ class Product_Options extends Controller {
 		return $variants;
 	}
 
+	private function headless_variant_image_data( $variant ) {
+		if ( empty( $variant->image_url ) ) {
+			return [
+				'url' => ''
+			];
+		}
+
+		return [
+			'url' => $variant->image_url,
+		];
+	}
 
 	private function image_size() {
 		switch ( get_option( Customizer::GALLERY_SIZE, Customizer::SIZE_DEFAULT ) ) {

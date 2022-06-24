@@ -70,7 +70,6 @@ const setButtonState = (button) => {
 	disableActionButton(button);
 };
 
-
 /**
  * @function setInventory
  * @description Updates inventory/out of stock message and inputs
@@ -130,6 +129,56 @@ const handleAlertMessage = (formWrapper = '') => {
 	}
 
 	container.insertAdjacentHTML('beforeend', productMessage(state.variantMessage));
+};
+
+/**
+ * @function handleOptionStates
+ * @description Toggle the state of the current form options based on chosen options.
+ * @param formWrapper - Parent form node.
+ */
+const handleOptionStates = (formWrapper) => {
+	const options = tools.getNodes('product-form-option', false, formWrapper);
+
+	// Don't disable the first option so the user can choose alternative options.
+	if (options.length < 2) {
+		return;
+	}
+
+	options.forEach((option, i) => {
+		if (i === 0) return; // don't touch first option
+
+		const input = tools.getNodes('bc-product-option-field', true, option);
+
+		if (input && input[0]) {
+			let target = input[0];
+
+			if (input[0].type === 'checkbox' || input[0].type === 'radio') {
+				input.forEach((inputEl) => {
+					if (inputEl.checked) {
+						target = inputEl;
+					} else {
+						inputEl.removeAttribute('disabled');
+					}
+				});
+			} else if (input[0].type === 'select-one') {
+				tools.getNodes('option', true, input[0], true).forEach((inputEl) => {
+					if (inputEl.selected) {
+						target = inputEl;
+					} else {
+						inputEl.removeAttribute('disabled');
+					}
+				});
+			}
+
+			if (state.isValidOption) {
+				target.removeAttribute('disabled');
+			} else {
+				target.setAttribute('disabled', true);
+			}
+		}
+
+		option.classList.toggle('bc-product-form__option-variants--disabled');
+	});
 };
 
 /**
@@ -290,7 +339,7 @@ const handleSelectedVariant = (product = {}) => {
 	state.maxInventory = product.inventory;
 
 	// Case: product variant has a variant image.
-	if (product.image.url.length > 0) {
+	if (product.image && product.image.url.length > 0) {
 		state.variantImage.url = product.image.url;
 		state.variantImage.zoom = !_.isEmpty(product.zoom.url) ? product.zoom.url : '';
 		state.variantImage.srcset = !_.isEmpty(product.image.srcset) ? product.image.srcset : '';
@@ -396,6 +445,24 @@ const setProductURLParameter = () => {
 };
 
 /**
+ * @function setProductVariantInventory
+ * @description Update inventory level html for selected variant
+ */
+const setProductVariantInventory = () => {
+	if (!state.variantID || !state.sku || !el.singleWrapper || state.singleVariant) {
+		return;
+	}
+
+	const node = tools.getNodes('.bc-product__inventory-number', true, document, true)[0];
+
+	if (!node) {
+		return;
+	}
+
+	node.textContent = state.maxInventory;
+};
+
+/**
  * @function validateTextArea
  * @description Listen for key presses and validate that the text meets the textarea's restrictions.
  * @param e
@@ -477,12 +544,14 @@ const handleSelections = (e, node = '') => {
 	buildSelectionArray(instances.selections[productID], optionsContainer);
 	parseVariants(instances.product[productID], instances.selections[productID]);
 	setProductURLParameter();
+	setProductVariantInventory();
 	setVariantIDHiddenField(formWrapper);
 	setSelectedVariantPrice(metaWrapper);
 	setVariantSKU(metaWrapper);
 	setInventory();
 	showHideVariantImage(null, metaWrapper);
 	setButtonState(submitButton);
+	handleOptionStates(formWrapper);
 	handleAlertMessage(formWrapper);
 };
 

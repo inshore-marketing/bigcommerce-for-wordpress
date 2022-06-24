@@ -5,8 +5,10 @@ namespace BigCommerce\Forms;
 
 
 use BigCommerce\Accounts\Customer;
+use BigCommerce\Accounts\Login;
 use BigCommerce\Accounts\Roles\Customer as Customer_Role;
 use BigCommerce\Accounts\User_Profile_Settings;
+use BigCommerce\Container\Accounts;
 use BigCommerce\Pages\Account_Page;
 use BigCommerce\Compatibility\Spam_Checker;
 use BigCommerce\Settings\Sections\Account_Settings;
@@ -20,8 +22,14 @@ class Registration_Handler implements Form_Handler {
 	 */
 	private $spam_checker;
 
-	public function __construct( Spam_Checker $spam_checker ) {
+	/**
+	 * @var \BigCommerce\Accounts\Login
+	 */
+	private $login;
+
+	public function __construct( Spam_Checker $spam_checker, Login $login ) {
 		$this->spam_checker = $spam_checker;
+		$this->login        = $login;
 	}
 
 	public function handle_request( $submission ) {
@@ -108,12 +116,6 @@ class Registration_Handler implements Form_Handler {
 		};
 		add_filter( 'bigcommerce/customer/create/args', $profile_filter, 10, 1 );
 
-		wp_signon( [
-			'user_login'    => $profile[ 'email' ],
-			'user_password' => $password,
-			'remember'      => true,
-		] );
-
 		remove_filter( 'bigcommerce/customer/create/args', $profile_filter, 10 );
 
 		$user = new \WP_User( $user_id );
@@ -124,13 +126,9 @@ class Registration_Handler implements Form_Handler {
 		// all future password validation will be against the API for this user
 		update_user_meta( $user_id, User_Profile_Settings::SYNC_PASSWORD, true );
 
-		wp_set_current_user( $user_id );
-
-		//set user first and last name in wordpress
-		// update_user_meta( $user_id, 'first_name', $profile['first_name'] );
-		// update_user_meta( $user_id, 'last_name', $profile['last_name'] );
-
-
+		/** Create customer profile */
+		// TODO: Add connection via V3 and channels
+		$this->login->connect_customer_id( $submission[ 'bc-register' ][ 'email' ], $user );
 		$customer = new Customer( $user_id );
 		$customer->add_address( $address );
 
@@ -173,6 +171,17 @@ class Registration_Handler implements Form_Handler {
 		return true;
 	}
 
+	/**
+	 * @param $email
+	 *
+	 * @return bool
+	 */
+	private function is_email_free( $email ): bool {
+		$user = get_user_by( 'login', $email );
+
+		return empty( $user );
+	}
+
 	private function validate_submission( $submission ) {
 		$errors = new \WP_Error();
 
@@ -191,7 +200,10 @@ class Registration_Handler implements Form_Handler {
 			$errors->add( 'email', __( 'Email Address is required.', 'bigcommerce' ) );
 		} elseif ( ! is_email( $submission[ 'bc-register' ][ 'email' ] ) ) {
 			$errors->add( 'email', __( 'Please verify that you have submitted a valid email address.', 'bigcommerce' ) );
+		} elseif ( ! $this->is_email_free( $submission['bc-register']['email'] ) ) {
+			$errors->add( 'email', __( 'Sorry, that email address is already used!', 'bigcommerce' ) );
 		}
+
 		if ( empty( $submission[ 'bc-register' ][ 'new_password' ] ) ) {
 			$errors->add( 'new_password', __( 'Please set your password.', 'bigcommerce' ) );
 		}

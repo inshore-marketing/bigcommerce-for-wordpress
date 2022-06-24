@@ -75,19 +75,23 @@ class Product_Data_Fetcher implements Import_Processor {
 				'limit'   => $this->limit,
 			] );
 		} catch ( ApiException $e ) {
-			do_action( 'bigcommerce/import/error', $e->getMessage(), [
+			do_action( 'bigcommerce/log', Error_Log::ERROR, 'API issue during the products data fetch', [
 				'response' => $e->getResponseBody(),
 				'headers'  => $e->getResponseHeaders(),
 			] );
 
 			do_action( 'bigcommerce/log', Error_Log::DEBUG, $e->getTraceAsString(), [] );
-
+			$this->fetch_end( $next, $status, $chunks );
 			return;
-		} catch ( \InvalidArgumentException $e ) {
-			do_action( 'bigcommerce/import/error', $e->getMessage(), [] );
+		} catch ( \Exception $e ) {
+//			do_action( 'bigcommerce/import/error', $e->getMessage(), [] );
 			do_action( 'bigcommerce/log', Error_Log::DEBUG, $e->getTraceAsString(), [] );
+			do_action( 'bigcommerce/log', Error_Log::DEBUG, __( 'Chunk failed. Finish chunk processing and move to next chunk', 'bigcommerce' ), [
+				'limit' => $this->limit,
+				'ids'   => $product_ids,
+			] );
 
-			$this->fetch_end( $next, $status );
+			$this->fetch_end( $next, $status, $chunks );
 
 			return;
 		}
@@ -168,10 +172,10 @@ class Product_Data_Fetcher implements Import_Processor {
 		 */
 		do_action( 'bigcommerce/import/fetched_products', $count, $products_response );
 
-		$this->fetch_end( $next, $status );
+		$this->fetch_end( $next, $status, $chunks );
 	}
 
-	private function fetch_end( $next, $status ) {
+	private function fetch_end( $next, $status, $chunks ) {
 		$next ++;
 		if ( ! empty( $chunks[ $next ] ) ) {
 			do_action( 'bigcommerce/log', Error_Log::DEBUG, __( 'Ready for next page of products', 'bigcommerce' ), [
